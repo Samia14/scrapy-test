@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 
 class Command(BaseRunSpiderCommand):
+    """Custom Scrapy command to run a single spider."""
     requires_project = True
 
     def syntax(self) -> str:
@@ -21,26 +22,25 @@ class Command(BaseRunSpiderCommand):
         return "Run a spider"
 
     def run(self, args: list[str], opts: argparse.Namespace) -> None:
-        if len(args) < 1:
-            raise UsageError
+        if not args:
+            raise UsageError("You must specify a spider to run.")
         if len(args) > 1:
-            raise UsageError(
-                "running 'scrapy crawl' with more than one spider is not supported"
-            )
-        spname = args[0]
+            raise UsageError("Only one spider can be run at a time.")
 
-        assert self.crawler_process
-        crawl_defer = self.crawler_process.crawl(spname, **opts.spargs)
+        spider_name = args[0]
 
-        if getattr(crawl_defer, "result", None) is not None and issubclass(
-            cast(Failure, crawl_defer.result).type, Exception
-        ):
+        if not self.crawler_process:
+            raise RuntimeError("Crawler process not initialized.")
+
+        crawl_defer = self.crawler_process.crawl(spider_name, **opts.spargs)
+
+        result = getattr(crawl_defer, "result", None)
+        if isinstance(result, Failure) and issubclass(result.type, Exception):
             self.exitcode = 1
-        else:
-            self.crawler_process.start()
+            return
 
-            if self.crawler_process.bootstrap_failed or (
-                hasattr(self.crawler_process, "has_exception")
-                and self.crawler_process.has_exception
-            ):
-                self.exitcode = 1
+        self.crawler_process.start()
+
+        if getattr(self.crawler_process, "bootstrap_failed", False) or \
+           getattr(self.crawler_process, "has_exception", False):
+            self.exitcode = 1
